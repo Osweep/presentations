@@ -1,0 +1,195 @@
+{
+	"$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+	"contentVersion": "1.0.0.0",
+	"parameters": {
+		"<your parameter here>": {
+			"type": "string"
+		}
+	},
+	"variables": {},
+	"resources": [
+		{
+			"name": "PL_src_to_dwh_fixed",
+			"type": "pipelines",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"activities": [
+					{
+						"name": "LKP_src_tables",
+						"type": "Lookup",
+						"dependsOn": [],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"typeProperties": {
+							"source": {
+								"type": "AzureSqlSource",
+								"sqlReaderQuery": "SELECT * FROM INFORMATION_SCHEMA.TABLES\nWHERE TABLE_TYPE = 'BASE TABLE' \nAND TABLE_SCHEMA <> 'dbo' ",
+								"queryTimeout": "02:00:00",
+								"partitionOption": "None"
+							},
+							"firstRowOnly": false,
+							"datasetSettings": {
+								"annotations": [],
+								"type": "AzureSqlTable",
+								"schema": [],
+								"typeProperties": {
+									"database": "<insert your database here>"
+								},
+								"externalReferences": {
+									"connection": "[parameters('<insert your connection here>')]"
+								}
+							}
+						}
+					},
+					{
+						"name": "FE_table_in_src",
+						"type": "ForEach",
+						"dependsOn": [
+							{
+								"activity": "LKP_src_tables",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							},
+							{
+								"activity": "NB_get_warehouse_information",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"typeProperties": {
+							"items": {
+								"value": "@activity('LKP_src_tables').output.value",
+								"type": "Expression"
+							},
+							"activities": [
+								{
+									"name": "cd_src_to_dwh",
+									"type": "Copy",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "0.12:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"typeProperties": {
+										"source": {
+											"type": "AzureSqlSource",
+											"queryTimeout": "02:00:00",
+											"partitionOption": "None",
+											"datasetSettings": {
+												"annotations": [],
+												"type": "AzureSqlTable",
+												"schema": [],
+												"typeProperties": {
+													"schema": {
+														"value": "@item().TABLE_SCHEMA",
+														"type": "Expression"
+													},
+													"table": {
+														"value": "@item().TABLE_NAME",
+														"type": "Expression"
+													},
+													"database": "<Insert your database here>"
+												},
+												"externalReferences": {
+													"connection": "[parameters('<Insert your connection here>')]"
+												}
+											}
+										},
+										"sink": {
+											"type": "DataWarehouseSink",
+											"preCopyScript": {
+												"value": "@concat('DROP TABLE IF EXISTS Bronze.tbl_',pipeline().parameters.source_name,'_',item().TABLE_SCHEMA,'_',item().TABLE_NAME)",
+												"type": "Expression"
+											},
+											"allowCopyCommand": true,
+											"copyCommandSettings": {},
+											"tableOption": "autoCreate",
+											"disableMetricsCollection": false,
+											"datasetSettings": {
+												"annotations": [],
+												"linkedService": {
+													"name": "<Insert your connection ID here>",
+													"properties": {
+														"annotations": [],
+														"type": "DataWarehouse",
+														"typeProperties": {
+															"endpoint": "@json(activity('NB_get_warehouse_information').output.result.exitvalue).endpoint",
+															"artifactId": "@json(activity('NB_get_warehouse_information').output.result.exitvalue).artifactId",
+															"workspaceId": "@json(activity('NB_get_warehouse_information').output.result.exitvalue).workspaceId"
+														}
+													}
+												},
+												"type": "DataWarehouseTable",
+												"schema": [],
+												"typeProperties": {
+													"schema": "Bronze",
+													"table": {
+														"value": "@concat('tbl_',pipeline().parameters.source_name,'_',item().TABLE_SCHEMA,'_',item().TABLE_NAME)",
+														"type": "Expression"
+													}
+												}
+											}
+										},
+										"enableStaging": true,
+										"translator": {
+											"type": "TabularTranslator",
+											"typeConversion": true,
+											"typeConversionSettings": {
+												"allowDataTruncation": true,
+												"treatBooleanAsNumber": false
+											}
+										}
+									}
+								}
+							]
+						}
+					},
+					{
+						"name": "NB_get_warehouse_information",
+						"type": "TridentNotebook",
+						"dependsOn": [],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"typeProperties": {
+							"notebookId": "cda87b6d-4027-445e-bdbd-6d889657b4ab",
+							"workspaceId": "6313da50-a654-4a7e-9a5f-f5fef01c4856",
+							"parameters": {
+								"workspace_id": {
+									"value": {
+										"value": "@pipeline().DataFactory",
+										"type": "Expression"
+									},
+									"type": "string"
+								}
+							}
+						}
+					}
+				],
+				"parameters": {
+					"source_name": {
+						"type": "string",
+						"defaultValue": "AW"
+					}
+				},
+				"lastModifiedByObjectId": "b5130520-aa1f-42f8-93a2-2414b1df8436",
+				"lastPublishTime": "2025-03-18T15:09:57Z"
+			},
+			"dependsOn": []
+		}
+	]
+}
